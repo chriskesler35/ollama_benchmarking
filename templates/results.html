@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark Results - Ollama Bench</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e4;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .meta {
+            color: #888;
+            margin-top: 0.5rem;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .card-title {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: #00d9ff;
+        }
+        
+        .nav {
+            margin-bottom: 1.5rem;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e4e4e4;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        th {
+            background: rgba(0, 217, 255, 0.1);
+            color: #00d9ff;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .rank-1 { color: #ffd700; font-weight: bold; }
+        .rank-2 { color: #c0c0c0; font-weight: bold; }
+        .rank-3 { color: #cd7f32; font-weight: bold; }
+        
+        .time-cell {
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+        
+        .model-section {
+            margin-top: 2rem;
+        }
+        
+        .model-name {
+            font-size: 1.3rem;
+            color: #00ff88;
+            margin-bottom: 1rem;
+        }
+        
+        .prompt-table {
+            width: 100%;
+        }
+        
+        .prompt-text {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .response-cell {
+            max-width: 400px;
+            max-height: 100px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.5rem;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        
+        .category-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        
+        .category-reasoning { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+        .category-coding { background: rgba(0, 217, 255, 0.2); color: #00d9ff; }
+        .category-creative { background: rgba(156, 39, 176, 0.2); color: #ce93d8; }
+        .category-factual { background: rgba(0, 255, 136, 0.2); color: #00ff88; }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .summary-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .summary-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        .summary-label {
+            font-size: 0.85rem;
+            color: #888;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .tab.active {
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏆 Benchmark Results</h1>
+            <p class="meta">Run ID: {{ run_id }} | Started: {{ run_data.start_time or 'N/A' }}</p>
+        </header>
+        
+        <nav class="nav">
+            <a href="/" class="btn btn-secondary">← Back to Home</a>
+            <a href="/history" class="btn btn-secondary">📜 History</a>
+        </nav>
+        
+        {% if run_data.status == 'completed' %}
+        
+        <div class="card">
+            <h2 class="card-title">📊 Summary</h2>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-value">{{ run_data.results|length }}</div>
+                    <div class="summary-label">Models Tested</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">{{ run_data.progress.total }}</div>
+                    <div class="summary-label">Total Prompts</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-value">{{ run_data.models[0] if run_data.results else 'N/A' }}</div>
+                    <div class="summary-label">Fastest Model</div>
+                </div>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Model</th>
+                        <th>Avg Time (ms)</th>
+                        <th>Total Time (ms)</th>
+                        <th>Reasoning</th>
+                        <th>Coding</th>
+                        <th>Creative</th>
+                        <th>Factual</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in run_data.results %}
+                    <tr>
+                        <td class="{% if loop.index <= 3 %}rank-{{ loop.index }}{% endif %}">
+                            {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+                        </td>
+                        <td>{{ result.model_name }}</td>
+                        <td class="time-cell">{{ result.avg_time_ms | round(1) }}</td>
+                        <td class="time-cell">{{ result.total_time_ms | round(1) }}</td>
+                        <td class="time-cell">{{ result.category_times.reasoning | round(1) }}</td>
+                        <td class="time-cell">{{ result.category_times.coding | round(1) }}</td>
+                        <td class="time-cell">{{ result.category_times.creative | round(1) }}</td>
+                        <td class="time-cell">{{ result.category_times.factual | round(1) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="card">
+            <h2 class="card-title">📝 Detailed Results by Model</h2>
+            <div class="tabs">
+                {% for result in run_data.results %}
+                <div class="tab {% if loop.index == 1 %}active{% endif %}" onclick="showTab({{ loop.index }})">
+                    {{ result.model_name }}
+                </div>
+                {% endfor %}
+            </div>
+            
+            {% for result in run_data.results %}
+            <div id="tab-{{ loop.index }}" class="tab-content {% if loop.index == 1 %}active{% endif %}">
+                <table class="prompt-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Prompt</

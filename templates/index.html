@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Bench</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦙 Ollama Bench</h1>
+            <p class="subtitle">Benchmark your local Ollama models</p>
+        </header>
+
+        <!-- Settings Section -->
+        <section class="card settings-card">
+            <h2>⚙️ Settings</h2>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label for="ollama-url">Ollama Server URL</label>
+                    <input type="text" id="ollama-url" 
+                           value="localhost:11434" 
+                           placeholder="localhost:11434 or 192.168.1.100:11434">
+                    <span class="setting-hint">Host and port of your Ollama server</span>
+                </div>
+                <div class="setting-item">
+                    <label for="output-path">Output JSON File</label>
+                    <input type="text" id="output-path" 
+                           placeholder="Leave empty for default (results.json)">
+                    <span class="setting-hint">Where to save benchmark results (e.g., ./output/bench.json)</span>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <button id="test-connection" class="btn btn-secondary">🔌 Test Connection</button>
+                <span id="connection-status" class="connection-status"></span>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>📦 Available Models</h2>
+            <div id="models-container">
+                <p class="loading">Loading models...</p>
+            </div>
+            <div class="actions">
+                <button id="refresh-models" class="btn btn-secondary">🔄 Refresh</button>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="select-all-models" checked>
+                    Select All
+                </label>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>🚀 Run Benchmark</h2>
+            <div class="actions">
+                <button id="run-benchmark" class="btn btn-primary" disabled>▶️ Start Benchmark</button>
+                <button id="cancel-benchmark" class="btn btn-danger" style="display: none;">⏹️ Cancel</button>
+            </div>
+        </section>
+
+        <section class="card" id="progress-section" style="display: none;">
+            <h2>⏳ Progress</h2>
+            <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-text">Ready</p>
+            <p id="current-model"></p>
+            <div id="progress-log" class="log-container"></div>
+        </section>
+
+        <section class="card" id="results-section" style="display: none;">
+            <h2>🏆 Results</h2>
+            <div id="results-container"></div>
+            
+            <div class="save-section">
+                <h3>💾 Save Results</h3>
+                <div class="save-row">
+                    <input type="text" id="save-path" class="save-path-input" 
+                           placeholder="Enter path or leave empty for default">
+                    <button id="save-results" class="btn btn-secondary">Save to Server</button>
+                    <button id="download-results" class="btn btn-primary">Download</button>
+                </div>
+                <p id="save-status" class="save-status"></p>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>📝 Test Prompts</h2>
+            <div class="actions" style="margin-bottom: 1rem;">
+                <button id="toggle-prompts" class="btn btn-secondary">👁️ Show Prompts</button>
+            </div>
+            <div id="prompts-container" style="display: none;"></div>
+        </section>
+    </div>
+
+    <footer>
+        <p>Ollama Bench — <a href="https://github.com">GitHub</a></p>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

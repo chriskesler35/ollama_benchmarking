@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Benchmark</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦙 Ollama Benchmark</h1>
+            <p class="subtitle">Benchmark your local Ollama models</p>
+        </header>
+
+        <section id="model-selection" class="card">
+            <h2>📦 Available Models</h2>
+            <div id="models-list" class="models-grid">
+                <p class="loading">Loading models...</p>
+            </div>
+            <div class="actions">
+                <button id="select-all" class="btn btn-secondary">Select All</button>
+                <button id="deselect-all" class="btn btn-secondary">Deselect All</button>
+            </div>
+        </section>
+
+        <section id="prompts-info" class="card">
+            <h2>📝 Test Prompts</h2>
+            <div id="prompts-summary"></div>
+        </section>
+
+        <section id="benchmark-controls" class="card">
+            <h2>🚀 Run Benchmark</h2>
+            <div class="controls-row">
+                <button id="start-btn" class="btn btn-primary" disabled>
+                    Start Benchmark
+                </button>
+                <button id="cancel-btn" class="btn btn-danger" disabled>
+                    Cancel
+                </button>
+            </div>
+            <div id="progress-container" class="hidden">
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <p id="progress-text">Ready</p>
+            </div>
+        </section>
+
+        <section id="results-section" class="card hidden">
+            <h2>🏆 Results</h2>
+            <div id="results-table"></div>
+            <div class="actions">
+                <button id="export-btn" class="btn btn-secondary">Export JSON</button>
+            </div>
+        </section>
+
+        <section id="history-section" class="card">
+            <h2>📜 History</h2>
+            <div id="history-content">
+                <p class="loading">No previous runs</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

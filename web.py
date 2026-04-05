@@ -4,6 +4,7 @@
 import asyncio
 import json
 import os
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -84,11 +85,23 @@ async def run_prompt_async(model: str, prompt_text: str, category: str) -> Promp
             response_time_ms=0,
             response=f"[ERROR: {e}]"
         )
+    except Exception as e:
+        # Catch any unexpected errors
+        print(f"⚠️  Unexpected error in run_prompt_async: {e}")
+        traceback.print_exc()
+        return PromptResult(
+            category=category,
+            prompt=prompt_text,
+            response_time_ms=0,
+            response=f"[ERROR: {e}]"
+        )
 
 
 async def benchmark_stream_generator(models: Optional[List[str]] = None):
     """Generate SSE events for benchmark progress."""
     import time
+    
+    failed_models: List[str] = []
     
     try:
         # Discover models if not provided
@@ -97,6 +110,9 @@ async def benchmark_stream_generator(models: Optional[List[str]] = None):
                 models = discover_models()
             except SystemExit:
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Cannot connect to Ollama'}})}\n\n"
+                return
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': f'Error discovering models: {e}'}})}\n\n"
                 return
         
         if not models:
@@ -113,26 +129,54 @@ async def benchmark_stream_generator(models: Optional[List[str]] = None):
             model_results: List[PromptResult] = []
             
             for prompt_idx, prompt in enumerate(TEST_PROMPTS):
-                start_time = time.perf_counter()
+                try:
+                    start_time = time.perf_counter()
+                    
+                    result = await run_prompt_async(model, prompt.text, prompt.category)
+                    
+                    end_time = time.perf_counter()
+                    result.response_time_ms = (end_time - start_time) * 1000
+                    
+                    model_results.append(result)
+                    
+                    yield f"data: {json.dumps({'type': 'prompt_done', 'data': {'model': model, 'prompt_index': prompt_idx, 'total_prompts': len(TEST_PROMPTS), 'category': prompt.category, 'time_ms': result.response_time_ms}})}\n\n"
                 
-                result = await run_prompt_async(model, prompt.text, prompt.category)
-                
-                end_time = time.perf_counter()
-                result.response_time_ms = (end_time - start_time) * 1000
-                
-                model_results.append(result)
-                
-                yield f"data: {json.dumps({'type': 'prompt_done', 'data': {'model': model, 'prompt_index': prompt_idx, 'total_prompts': len(TEST_PROMPTS), 'category': prompt.category, 'time_ms': result.response_time_ms}})}\n\n"
+                except Exception as e:
+                    # Log error but continue with next prompt
+                    print(f"⚠️  Error running prompt {prompt_idx} for {model}: {e}")
+                    traceback.print_exc()
+                    
+                    # Create an error result
+                    error_result = PromptResult(
+                        category=prompt.category,
+                        prompt=prompt.text,
+                        response_time_ms=0,
+                        response=f"[ERROR: {e}]"
+                    )
+                    model_results.append(error_result)
+                    
+                    yield f"data: {json.dumps({'type': 'prompt_error', 'data': {'model': model, 'prompt_index': prompt_idx, 'category': prompt.category, 'error': str(e)}})}\n\n"
             
-            model_result = calculate_model_result(model, model_results)
-            results.append(model_result)
-            
-            yield f"data: {json.dumps({'type': 'model_done', 'data': {'model': model, 'avg_time_ms': model_result.avg_time_ms, 'total_time_ms': model_result.total_time_ms}})}\n\n"
+            # Calculate model result even if some prompts failed
+            try:
+                model_result = calculate_model_result(model, model_results)
+                results.append(model_result)
+                
+                yield f"data: {json.dumps({'type': 'model_done', 'data': {'model': model, 'avg_time_ms': model_result.avg_time_ms, 'total_time_ms': model_result.total_time_ms}})}\n\n"
+            except Exception as e:
+                # If we can't calculate results for this model, log and continue
+                print(f"⚠️  Failed to calculate results for {model}: {e}")
+                traceback.print_exc()
+                failed_models.append(model)
+                
+                yield f"data: {json.dumps({'type': 'model_error', 'data': {'model': model, 'error': str(e)}})}\n\n"
         
         # Save results
         output = {
             "timestamp": datetime.now().isoformat(),
             "total_models": len(results),
+            "successful_models": len(results),
+            "failed_models": failed_models,
             "results": [r.to_dict() for r in results]
         }
         
@@ -143,10 +187,13 @@ async def benchmark_stream_generator(models: Optional[List[str]] = None):
         # Sort by avg time for final results
         sorted_results = sorted(results, key=lambda r: r.avg_time_ms)
         
-        yield f"data: {json.dumps({'type': 'complete', 'data': {'results': [r.to_dict() for r in sorted_results], 'saved_to': str(output_file)}})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'data': {'results': [r.to_dict() for r in sorted_results], 'saved_to': str(output_file), 'failed_models': failed_models, 'total_models': len(models), 'successful_models': len(results)}})}\n\n"
         
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+        # Catch-all for any unexpected errors
+        print(f"❌ Benchmark stream error: {e}")
+        traceback.print_exc()
+        yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e), 'traceback': traceback.format_exc()}})}\n\n"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -166,6 +213,8 @@ async def list_models():
         return {"models": models}
     except SystemExit:
         raise HTTPException(status_code=503, detail="Cannot connect to Ollama")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error discovering models: {e}")
 
 
 @app.post("/api/benchmark")

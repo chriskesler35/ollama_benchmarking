@@ -20,6 +20,9 @@ from report import (
 )
 
 
+# Version
+VERSION = "1.0.0"
+
 # Default Ollama settings
 DEFAULT_OLLAMA_HOST = "localhost"
 DEFAULT_OLLAMA_PORT = 11434
@@ -242,6 +245,11 @@ Examples:
     )
 
     parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version number and exit"
+    )
+    parser.add_argument(
         "-m", "--models",
         nargs="+",
         metavar="MODEL",
@@ -281,30 +289,20 @@ Examples:
         metavar="URL",
         help="Ollama server URL (e.g., localhost:11434 or http://192.168.1.100:11434)"
     )
-    parser.add_argument(
-        "--list-models",
-        action="store_true",
-        help="List all installed models and exit"
-    )
 
     args = parser.parse_args()
 
+    # Handle --version flag early
+    if args.version:
+        print(f"ollama-bench {VERSION}")
+        sys.exit(0)
+
     # Parse URL if provided
-    host = args.host
-    port = args.port
     if args.url:
         host, port = parse_ollama_url(args.url)
-
-    # List models mode
-    if args.list_models:
-        models = discover_models(host, port)
-        if models:
-            print(f"\n📦 Installed models on {host}:{port}:")
-            for model in models:
-                print(f"  - {model}")
-        else:
-            print(f"\n❌ No models installed on {host}:{port}")
-        return
+    else:
+        host = args.host
+        port = args.port
 
     # Run benchmark
     run_benchmark(

@@ -1,47 +1,50 @@
 #!/usr/bin/env python3
 """Web UI for Ollama Benchmark Tool."""
 
-import asyncio
 import json
 import os
 import signal
 import socket
 import subprocess
 import sys
-import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import aiofiles
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
-from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-import aiofiles
 
-from bench import discover_models, run_prompt, parse_ollama_url, DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_PORT
+from bench import (
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_OLLAMA_PORT,
+    discover_models,
+    parse_ollama_url,
+    run_prompt,
+)
 from prompts import TEST_PROMPTS
-from report import PromptResult, ModelResult, calculate_model_result, save_results_to_json
+from report import ModelResult, PromptResult, calculate_model_result
 
 app = FastAPI(title="Ollama Benchmark")
 
-# Mount static files and templates
 BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
-# Store for completed results (for download)
-benchmark_results_store = {}
+benchmark_results_store: dict[str, List[ModelResult]] = {}
 
 
 def safe_print(message: str) -> None:
-    """Print safely on consoles that may not support Unicode (e.g. cp1252)."""
+    """Print safely on consoles that may not support Unicode."""
     try:
         print(message)
     except UnicodeEncodeError:
-        encoding = (sys.stdout.encoding or "utf-8")
+        encoding = sys.stdout.encoding or "utf-8"
         fallback = message.encode(encoding, errors="replace").decode(encoding, errors="replace")
         print(fallback)
 
@@ -101,6 +104,13 @@ def kill_process_on_port(port: int) -> bool:
     return killed_any
 
 
+class SaveRequest(BaseModel):
+    """Request to save benchmark results."""
+
+    results_id: str
+    filepath: Optional[str] = None
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the main UI."""
@@ -114,25 +124,19 @@ async def get_models(host: str = DEFAULT_OLLAMA_HOST, port: int = DEFAULT_OLLAMA
         models = discover_models(host, port)
         return {"models": models, "error": None, "host": host, "port": port}
     except SystemExit:
-        return {"models": [], "error": f"Cannot connect to Ollama at {host}:{port}"}
-    except Exception as e:
-        return {"models": [], "error": str(e)}
+        return {"models": [], "error": f"Cannot connect to Ollama at {host}:{port}", "host": host, "port": port}
+    except Exception as exc:
+        return {"models": [], "error": str(exc), "host": host, "port": port}
 
 
 @app.get("/api/prompts")
 async def get_prompts():
-    """Get list of test prompts."""
+    """Get benchmark prompts."""
+    categories = sorted({p.category for p in TEST_PROMPTS})
     return {
         "prompts": [{"category": p.category, "text": p.text} for p in TEST_PROMPTS],
-        "categories": list(set(p.category for p in TEST_PROMPTS)),
+        "categories": categories,
     }
-
-
-class SaveRequest(BaseModel):
-    """Request to save results to a file."""
-
-    results_id: str
-    filepath: Optional[str] = None
 
 
 @app.post("/api/save")
@@ -157,20 +161,19 @@ async def save_results(request: SaveRequest):
         "results": [r.to_dict() for r in results],
     }
 
-    async with aiofiles.open(filepath, "w") as f:
-        await f.write(json.dumps(output, indent=2))
+    async with aiofiles.open(filepath, "w", encoding="utf-8") as handle:
+        await handle.write(json.dumps(output, indent=2))
 
     return {"success": True, "filepath": str(filepath)}
 
 
 @app.get("/api/download/{results_id}")
 async def download_results(results_id: str):
-    """Download results as a JSON file to the browser."""
+    """Download results as a JSON file."""
     if results_id not in benchmark_results_store:
         raise HTTPException(status_code=404, detail="Results not found")
 
     results = benchmark_results_store[results_id]
-
     output = {
         "timestamp": datetime.now().isoformat(),
         "total_models": len(results),
@@ -178,44 +181,24 @@ async def download_results(results_id: str):
     }
 
     temp_file = BASE_DIR / f"temp_{results_id}.json"
-    async with aiofiles.open(temp_file, "w") as f:
-        await f.write(json.dumps(output, indent=2))
+    async with aiofiles.open(temp_file, "w", encoding="utf-8") as handle:
+        await handle.write(json.dumps(output, indent=2))
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"benchmark_results_{timestamp}.json"
-
+    filename = f"benchmark_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     return FileResponse(path=temp_file, filename=filename, media_type="application/json")
-
-
-class ConnectionManager:
-    """Manage WebSocket connections for real-time updates."""
-
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-
-manager = ConnectionManager()
 
 
 @app.websocket("/ws/benchmark")
 async def websocket_benchmark(websocket: WebSocket):
     """Run benchmark with real-time progress updates via WebSocket."""
-    await manager.connect(websocket)
+    await websocket.accept()
 
     try:
-        data = await websocket.receive_text()
-        config = json.loads(data)
+        raw = await websocket.receive_text()
+        config = json.loads(raw)
+
         models = config.get("models", [])
         ollama_url = config.get("ollama_url", f"{DEFAULT_OLLAMA_HOST}:{DEFAULT_OLLAMA_PORT}")
-        output_path = config.get("output_path", None)
         host, port = parse_ollama_url(ollama_url)
 
         if not models:
@@ -233,10 +216,9 @@ async def websocket_benchmark(websocket: WebSocket):
         )
 
         results: List[ModelResult] = []
+        failed_models: List[str] = []
 
         for model_idx, model in enumerate(models):
-            model_results: List[PromptResult] = []
-
             await websocket.send_json(
                 {
                     "type": "model_start",
@@ -246,86 +228,91 @@ async def websocket_benchmark(websocket: WebSocket):
                 }
             )
 
-            for prompt_idx, prompt in enumerate(TEST_PROMPTS):
-                await websocket.send_json(
-                    {
-                        "type": "prompt_start",
-                        "model": model,
-                        "prompt_index": prompt_idx,
-                        "prompt_category": prompt.category,
-                        "total_prompts": len(TEST_PROMPTS),
-                    }
-                )
+            model_results: List[PromptResult] = []
 
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, run_prompt, model, prompt, False, host, port)
+            for prompt_idx, prompt in enumerate(TEST_PROMPTS):
+                result = run_prompt(model, prompt, False, host, port)
                 model_results.append(result)
 
                 await websocket.send_json(
                     {
-                        "type": "prompt_complete",
+                        "type": "prompt_done",
                         "model": model,
                         "prompt_index": prompt_idx,
-                        "prompt_category": prompt.category,
-                        "response_time_ms": result.response_time_ms,
-                        "response_preview": (
-                            result.response[:200] + "..." if len(result.response) > 200 else result.response
-                        ),
+                        "total_prompts": len(TEST_PROMPTS),
+                        "category": prompt.category,
+                        "time_ms": result.response_time_ms,
                     }
                 )
 
-            model_result = calculate_model_result(model, model_results)
-            results.append(model_result)
-
-            await websocket.send_json(
-                {
-                    "type": "model_complete",
-                    "model": model,
-                    "avg_time_ms": model_result.avg_time_ms,
-                    "total_time_ms": model_result.total_time_ms,
-                    "category_times": model_result.category_times,
-                }
-            )
-
-        results.sort(key=lambda x: x.avg_time_ms)
-        results_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        benchmark_results_store[results_id] = results
-
-        if output_path:
             try:
-                save_results_to_json(results, output_path)
-            except Exception:
-                pass
+                model_result = calculate_model_result(model, model_results)
+                results.append(model_result)
 
-        await websocket.send_json({"type": "complete", "results_id": results_id, "results": [r.to_dict() for r in results]})
+                await websocket.send_json(
+                    {
+                        "type": "model_done",
+                        "model": model,
+                        "avg_time_ms": model_result.avg_time_ms,
+                        "total_time_ms": model_result.total_time_ms,
+                    }
+                )
+            except Exception as exc:
+                failed_models.append(model)
+                await websocket.send_json(
+                    {
+                        "type": "model_error",
+                        "model": model,
+                        "message": str(exc),
+                    }
+                )
+
+        sorted_results = sorted(results, key=lambda item: item.avg_time_ms)
+        results_id = uuid.uuid4().hex
+        benchmark_results_store[results_id] = sorted_results
+
+        output_path = config.get("output_path")
+        if output_path:
+            filepath = Path(output_path)
+            if filepath.suffix != ".json":
+                filepath = filepath.with_suffix(".json")
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            output = {
+                "timestamp": datetime.now().isoformat(),
+                "total_models": len(sorted_results),
+                "results": [r.to_dict() for r in sorted_results],
+            }
+
+            async with aiofiles.open(filepath, "w", encoding="utf-8") as handle:
+                await handle.write(json.dumps(output, indent=2))
+
+        await websocket.send_json(
+            {
+                "type": "complete",
+                "results": [r.to_dict() for r in sorted_results],
+                "results_id": results_id,
+                "failed_models": failed_models,
+                "saved_to": output_path or None,
+            }
+        )
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        await websocket.send_json({"type": "error", "message": str(e)})
-    finally:
-        manager.disconnect(websocket)
+        safe_print("WebSocket disconnected")
+    except Exception as exc:
+        safe_print(f"Benchmark websocket error: {exc}")
+        await websocket.send_json({"type": "error", "message": str(exc)})
 
 
 if __name__ == "__main__":
-    import uvicorn
+    port = 8000
+    host = "127.0.0.1"
 
-    HOST = "0.0.0.0"
-    PORT = 8000
-
-    if is_port_in_use(PORT):
-        safe_print(f"Port {PORT} is already in use. Attempting to kill the process...")
-        killed = kill_process_on_port(PORT)
-        if killed:
-            safe_print(f"Process on port {PORT} terminated. Waiting 3 seconds...")
-            time.sleep(3)
+    if is_port_in_use(port, host):
+        safe_print(f"Port {port} is in use on {host}. Attempting to free it...")
+        if kill_process_on_port(port):
+            safe_print(f"Freed port {port}.")
         else:
-            safe_print(f"Could not terminate process using port {PORT}. Exiting.")
-            raise SystemExit(1)
-
-    if is_port_in_use(PORT):
-        safe_print(f"Port {PORT} is still in use after cleanup attempt. Exiting.")
-        raise SystemExit(1)
-
-    safe_print(f"Starting Ollama Benchmark UI at http://{HOST}:{PORT}")
-    uvicorn.run(app, host=HOST, port=PORT)
+            safe_print(f"Could not free port {port}. Start manually on another port if needed.")
+    safe_print(f"Starting Ollama Benchmark UI at http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port)

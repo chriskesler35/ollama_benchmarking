@@ -1,11 +1,15 @@
 # ollama-bench
 
-A Python CLI and Web UI tool to benchmark all locally installed Ollama models across multiple prompt categories.
+A Python CLI and Web UI tool to benchmark local or remote Ollama models across multiple prompt categories.
 
 ## Features
 
-- 🔍 **Auto-discovery**: Automatically finds all installed Ollama models
-- 📊 **Multi-category testing**: Tests models across reasoning, coding, creative, and factual prompts
-- ⏱️ **Performance metrics**: Measures response time for each prompt
-- 🏆 **Ranked results**: Displays results in a terminal table with medal icons
-- 💾 **JSON export**: Saves
+- Auto-discovers available Ollama models
+- Benchmarks reasoning, coding, creative, and factual prompts
+- Measures per-prompt, per-category, and per-model timing
+- Web UI with live progress updates over WebSocket
+- Save results on the server or download them as JSON
+- CLI and Web UI both support custom Ollama host/port
+
+## Install
+

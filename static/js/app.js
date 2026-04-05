@@ -1,6 +1,5 @@
-// Ollama Bench Web UI - single source of truth (templates/index.html + /static/js/app.js)
-
 let ws = null;
+let availableModels = [];
 let selectedModels = new Set();
 let benchmarkResults = null;
 let currentResultsId = null;
@@ -25,20 +24,17 @@ const downloadBtn = document.getElementById('download-results');
 const togglePromptsBtn = document.getElementById('toggle-prompts');
 const promptsContainer = document.getElementById('prompts-container');
 const saveStatus = document.getElementById('save-status');
-
-// Settings elements
 const ollamaUrlInput = document.getElementById('ollama-url');
 const outputPathInput = document.getElementById('output-path');
 const testConnectionBtn = document.getElementById('test-connection');
 const connectionStatus = document.getElementById('connection-status');
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
-    loadPrompts();
     setupEventListeners();
-    loadModels();
     ensureToast();
+    loadPrompts();
+    loadModels();
 });
 
 function ensureToast() {
@@ -48,7 +44,7 @@ function ensureToast() {
     toastEl = document.createElement('div');
     toastEl.id = 'benchmark-toast';
     toastEl.className = 'benchmark-toast hidden';
-    toastEl.innerHTML = `<span id="benchmark-toast-text">Ready</span>`;
+    toastEl.innerHTML = '<span id="benchmark-toast-text">Ready</span>';
     document.body.appendChild(toastEl);
 }
 
@@ -60,8 +56,9 @@ function showToast(message, type = 'info') {
 }
 
 function hideToast() {
-    if (!toastEl) return;
-    toastEl.className = 'benchmark-toast hidden';
+    if (toastEl) {
+        toastEl.className = 'benchmark-toast hidden';
+    }
 }
 
 function loadSettings() {
@@ -90,9 +87,15 @@ function getOutputPath() {
 
 function parseHostPort(rawUrl) {
     const cleaned = rawUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const [hostPart, portPart] = cleaned.split(':');
-    const host = hostPart || 'localhost';
-    const port = Number.parseInt(portPart, 10);
+    const lastColon = cleaned.lastIndexOf(':');
+
+    if (lastColon === -1) {
+        return { host: cleaned || 'localhost', port: 11434 };
+    }
+
+    const host = cleaned.slice(0, lastColon) || 'localhost';
+    const port = Number.parseInt(cleaned.slice(lastColon + 1), 10);
+
     return {
         host,
         port: Number.isInteger(port) ? port : 11434
@@ -107,16 +110,22 @@ function setupEventListeners() {
     saveBtn.addEventListener('click', saveResults);
     downloadBtn.addEventListener('click', downloadResults);
     togglePromptsBtn.addEventListener('click', togglePrompts);
+
     testConnectionBtn.addEventListener('click', async () => {
         await testConnection();
         await loadModels();
     });
 
-    ollamaUrlInput.addEventListener('change', () => {
+    ollamaUrlInput.addEventListener('change', async () => {
         saveSettings();
-        testConnection();
+        await testConnection();
+        await loadModels();
     });
-    outputPathInput.addEventListener('change', saveSettings);
+
+    outputPathInput.addEventListener('change', () => {
+        saveSettings();
+        savePathInput.value = getOutputPath();
+    });
 }
 
 async function testConnection() {
@@ -150,7 +159,6 @@ async function testConnection() {
 
 async function loadModels() {
     modelsContainer.innerHTML = '<p class="loading">Loading models...</p>';
-
     const { host, port } = parseHostPort(getOllamaUrl());
 
     try {
@@ -158,69 +166,88 @@ async function loadModels() {
         const data = await response.json();
 
         if (data.error) {
+            availableModels = [];
+            selectedModels.clear();
             modelsContainer.innerHTML = `<p class="error-message">Error: ${escapeHtml(data.error)}</p>`;
-            runBtn.disabled = true;
+            updateSelectAllState();
+            updateRunButton();
             return;
         }
 
-        const models = data.models || [];
-        if (models.length === 0) {
+        availableModels = data.models || [];
+
+        if (availableModels.length === 0) {
+            selectedModels.clear();
             modelsContainer.innerHTML = '<p class="error-message">No models found. Install models with: <code>ollama pull &lt;model&gt;</code></p>';
-            runBtn.disabled = true;
+            updateSelectAllState();
+            updateRunButton();
             return;
         }
 
-        renderModels(models);
-        log('info', `Loaded ${models.length} model(s) from ${host}:${port}`);
+        selectedModels = new Set(availableModels);
+        renderModels();
+        updateRunButton();
+        log('info', `Loaded ${availableModels.length} model(s) from ${host}:${port}`);
     } catch (error) {
+        availableModels = [];
+        selectedModels.clear();
         modelsContainer.innerHTML = `<p class="error-message">Failed to load models: ${escapeHtml(error.message)}</p>`;
-        runBtn.disabled = true;
+        updateSelectAllState();
+        updateRunButton();
     }
 }
 
-function renderModels(models) {
-    selectedModels = new Set(models);
-
+function renderModels() {
     modelsContainer.innerHTML = `
         <div class="model-grid">
-            ${models.map(model => `
+            ${availableModels.map(model => `
                 <div class="model-item">
-                    <input type="checkbox" id="model-${escapeHtml(model)}"
-                           value="${escapeHtml(model)}" checked
-                           onchange="toggleModel('${escapeJs(model)}', this.checked)">
+                    <input
+                        type="checkbox"
+                        id="model-${escapeHtml(model)}"
+                        value="${escapeHtml(model)}"
+                        ${selectedModels.has(model) ? 'checked' : ''}
+                    >
                     <label for="model-${escapeHtml(model)}">${escapeHtml(model)}</label>
                 </div>
             `).join('')}
         </div>
     `;
 
+    const checkboxes = modelsContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', (event) => {
+            const model = event.target.value;
+            if (event.target.checked) selectedModels.add(model);
+            else selectedModels.delete(model);
+
+            updateSelectAllState();
+            updateRunButton();
+        });
+    });
+
     updateSelectAllState();
-    updateRunButton();
 }
 
-window.toggleModel = function (model, checked) {
-    if (checked) selectedModels.add(model);
-    else selectedModels.delete(model);
-
-    updateSelectAllState();
-    updateRunButton();
-};
-
 function toggleSelectAll() {
+    const shouldSelectAll = selectAllCheckbox.checked;
     const checkboxes = modelsContainer.querySelectorAll('input[type="checkbox"]');
+
     selectedModels.clear();
 
-    checkboxes.forEach(cb => {
-        cb.checked = selectAllCheckbox.checked;
-        if (selectAllCheckbox.checked) selectedModels.add(cb.value);
+    checkboxes.forEach((checkbox) => {
+        checkbox.checked = shouldSelectAll;
+        if (shouldSelectAll) {
+            selectedModels.add(checkbox.value);
+        }
     });
 
     updateRunButton();
 }
 
 function updateSelectAllState() {
-    const checkboxes = modelsContainer.querySelectorAll('input[type="checkbox"]');
-    selectAllCheckbox.checked = checkboxes.length > 0 && selectedModels.size === checkboxes.length;
+    const total = availableModels.length;
+    selectAllCheckbox.checked = total > 0 && selectedModels.size === total;
 }
 
 function updateRunButton() {
@@ -232,156 +259,182 @@ async function loadPrompts() {
         const response = await fetch('/api/prompts');
         const data = await response.json();
 
-        if (!data.prompts) {
-            promptsContainer.innerHTML = '<p class="error-message">No prompts available</p>';
-            return;
-        }
-
         promptsContainer.innerHTML = `
             <div class="prompt-list">
-                ${data.prompts.map(p => `
+                ${data.prompts.map(prompt => `
                     <div class="prompt-item">
-                        <span class="prompt-category ${p.category}">${escapeHtml(p.category)}</span>
-                        <p class="prompt-text">${escapeHtml(p.text)}</p>
+                        <div class="prompt-category ${escapeHtml(prompt.category)}">${escapeHtml(prompt.category)}</div>
+                        <div class="prompt-text">${escapeHtml(prompt.text)}</div>
                     </div>
                 `).join('')}
             </div>
         `;
     } catch (error) {
-        promptsContainer.innerHTML = '<p class="error-message">Failed to load prompts</p>';
+        promptsContainer.innerHTML = `<p class="error-message">Failed to load prompts: ${escapeHtml(error.message)}</p>`;
     }
 }
 
 function togglePrompts() {
-    const hidden = promptsContainer.style.display === 'none' || !promptsContainer.style.display;
-    promptsContainer.style.display = hidden ? 'block' : 'none';
-    togglePromptsBtn.textContent = hidden ? '🙈 Hide Prompts' : '👁️ Show Prompts';
+    const isHidden = promptsContainer.style.display === 'none' || !promptsContainer.style.display;
+    promptsContainer.style.display = isHidden ? 'block' : 'none';
+    togglePromptsBtn.textContent = isHidden ? '🙈 Hide Prompts' : '👁️ Show Prompts';
 }
 
 function startBenchmark() {
-    if (ws && ws.readyState === WebSocket.OPEN) return;
-
-    const models = Array.from(selectedModels);
-    if (models.length === 0) {
-        alert('Pick at least one model first.');
+    if (selectedModels.size === 0) {
+        showToast('Select at least one model', 'warning');
         return;
     }
 
-    const ollamaUrl = getOllamaUrl();
-    const outputPath = getOutputPath();
     saveSettings();
-
-    progressSection.style.display = 'block';
+    benchmarkResults = null;
+    currentResultsId = null;
+    saveStatus.textContent = '';
     resultsSection.style.display = 'none';
+    progressSection.style.display = 'block';
     progressFill.style.width = '0%';
-    progressText.textContent = 'Starting benchmark...';
+    progressText.textContent = 'Connecting...';
     currentModel.textContent = '';
     progressLog.innerHTML = '';
 
-    runBtn.style.display = 'none';
+    runBtn.disabled = true;
     cancelBtn.style.display = 'inline-flex';
-    updateRunButton();
-
-    showToast(`🚀 Benchmark started (${models.length} model(s))`, 'info');
-    log('info', `Starting benchmark for ${models.length} model(s)`);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}/ws/benchmark`);
 
     ws.onopen = () => {
+        log('info', 'Benchmark started');
+        showToast('Benchmark started', 'info');
+
         ws.send(JSON.stringify({
-            models,
-            ollama_url: ollamaUrl,
-            output_path: outputPath || null
+            models: Array.from(selectedModels),
+            ollama_url: getOllamaUrl(),
+            output_path: getOutputPath() || null
         }));
     };
 
     ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWsEvent(data, models.length);
+        const message = JSON.parse(event.data);
+        handleBenchmarkMessage(message);
     };
 
     ws.onerror = () => {
-        log('error', 'WebSocket error during benchmark');
-        showToast('❌ Benchmark connection error', 'error');
+        log('error', 'WebSocket connection error');
+        showToast('WebSocket connection error', 'error');
     };
 
     ws.onclose = () => {
-        runBtn.style.display = 'inline-flex';
+        runBtn.disabled = false;
         cancelBtn.style.display = 'none';
         updateRunButton();
     };
 }
 
 function cancelBenchmark() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (ws) {
         ws.close();
-        log('warning', 'Benchmark canceled by user');
-        showToast('⏹️ Benchmark canceled', 'warning');
+        ws = null;
+    }
+
+    progressText.textContent = 'Benchmark cancelled';
+    currentModel.textContent = '';
+    log('warning', 'Benchmark cancelled');
+    showToast('Benchmark cancelled', 'warning');
+    runBtn.disabled = false;
+    cancelBtn.style.display = 'none';
+    updateRunButton();
+}
+
+function handleBenchmarkMessage(message) {
+    switch (message.type) {
+        case 'start':
+            progressText.textContent = `Running ${message.total_prompts} prompts per model`;
+            log('info', `Benchmarking ${message.models.length} model(s) on ${message.ollama_host}:${message.ollama_port}`);
+            break;
+
+        case 'model_start':
+            currentModel.textContent = `Current model: ${message.model}`;
+            log('info', `Starting ${message.model}`);
+            break;
+
+        case 'prompt_done': {
+            const overallPromptIndex = (message.model ? 0 : 0);
+            const completedBeforeThisModel = getCompletedModelsCount();
+            const totalModels = Math.max(selectedModels.size, 1);
+            const progress = ((completedBeforeThisModel + ((message.prompt_index + 1) / message.total_prompts)) / totalModels) * 100;
+
+            progressFill.style.width = `${Math.min(progress, 100)}%`;
+            progressText.textContent = `${message.model} — prompt ${message.prompt_index + 1}/${message.total_prompts}`;
+            log('success', `[${message.category}] ${message.model} ${message.time_ms.toFixed(0)}ms`);
+            break;
+        }
+
+        case 'model_done':
+            markModelComplete(message.model);
+            progressFill.style.width = `${(getCompletedModelsCount() / Math.max(selectedModels.size, 1)) * 100}%`;
+            log('success', `Finished ${message.model} — avg ${message.avg_time_ms.toFixed(1)}ms`);
+            break;
+
+        case 'model_error':
+            log('error', `${message.model}: ${message.message}`);
+            break;
+
+        case 'complete':
+            benchmarkResults = message.results || [];
+            currentResultsId = message.results_id || null;
+            currentModel.textContent = '';
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Benchmark complete';
+            renderResults(benchmarkResults);
+            resultsSection.style.display = 'block';
+
+            if (message.saved_to) {
+                saveStatus.textContent = `Auto-saved to ${message.saved_to}`;
+            }
+
+            if (message.failed_models && message.failed_models.length > 0) {
+                log('warning', `Failed models: ${message.failed_models.join(', ')}`);
+            }
+
+            showToast('Benchmark complete', 'success');
+
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            break;
+
+        case 'error':
+            log('error', message.message || 'Unknown benchmark error');
+            progressText.textContent = 'Benchmark failed';
+            showToast(message.message || 'Benchmark failed', 'error');
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            break;
+
+        default:
+            log('warning', `Unhandled event: ${message.type}`);
     }
 }
 
-function handleWsEvent(msg, fallbackModelCount) {
-    if (msg.type === 'start') {
-        progressText.textContent = `Running ${msg.total_prompts} prompts per model...`;
-        showToast(`Running benchmark on ${msg.models?.length || fallbackModelCount} model(s)...`, 'info');
-        return;
-    }
+const completedModels = new Set();
 
-    if (msg.type === 'model_start') {
-        currentModel.textContent = `Current: ${msg.model}`;
-        log('info', `🔄 ${msg.model}`);
-        showToast(`Testing ${msg.model}...`, 'info');
-        return;
-    }
+function markModelComplete(model) {
+    completedModels.add(model);
+}
 
-    if (msg.type === 'prompt_done') {
-        const totalModels = msg.total_models || fallbackModelCount;
-        const totalPrompts = msg.total_prompts || 10;
-        const completedBefore = msg.model_index * totalPrompts + msg.prompt_index;
-        const doneNow = completedBefore + 1;
-        const totalUnits = totalModels * totalPrompts;
-        const pct = Math.min(100, (doneNow / totalUnits) * 100);
-
-        progressFill.style.width = `${pct.toFixed(1)}%`;
-        progressText.textContent = `${pct.toFixed(1)}% complete`;
-        log('success', `✓ ${msg.model} [${msg.category}] ${Number(msg.time_ms || 0).toFixed(0)}ms`);
-        showToast(`⏳ ${pct.toFixed(1)}% complete`, 'info');
-        return;
-    }
-
-    if (msg.type === 'model_done') {
-        log('success', `✅ ${msg.model} complete (avg ${Number(msg.avg_time_ms || 0).toFixed(1)}ms)`);
-        return;
-    }
-
-    if (msg.type === 'complete') {
-        benchmarkResults = msg.results || [];
-        currentResultsId = msg.results_id || null;
-        progressFill.style.width = '100%';
-        progressText.textContent = 'Benchmark complete';
-        currentModel.textContent = '';
-        renderResults(benchmarkResults);
-        resultsSection.style.display = 'block';
-        showToast('🎉 Benchmark complete', 'success');
-        if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-        return;
-    }
-
-    if (msg.type === 'error') {
-        log('error', msg.message || 'Unknown benchmark error');
-        showToast(`❌ ${msg.message || 'Benchmark failed'}`, 'error');
-        if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-    }
+function getCompletedModelsCount() {
+    return completedModels.size;
 }
 
 function renderResults(results) {
     if (!results || results.length === 0) {
-        resultsContainer.innerHTML = '<p class="error-message">No results available</p>';
+        resultsContainer.innerHTML = '<p class="error-message">No results available.</p>';
         return;
     }
-
-    const sorted = [...results].sort((a, b) => a.avg_time_ms - b.avg_time_ms);
 
     resultsContainer.innerHTML = `
         <table class="results-table">
@@ -398,22 +451,20 @@ function renderResults(results) {
                 </tr>
             </thead>
             <tbody>
-                ${sorted.map((r, i) => {
-                    const rank = i + 1;
-                    const rankLabel = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : String(rank);
-                    return `
-                        <tr>
-                            <td class="${rank <= 3 ? `rank-${rank}` : ''}">${rankLabel}</td>
-                            <td>${escapeHtml(r.model_name)}</td>
-                            <td class="time-cell">${Number(r.avg_time_ms).toFixed(1)}</td>
-                            <td class="time-cell">${Number(r.total_time_ms).toFixed(1)}</td>
-                            <td class="time-cell">${Number(r.category_times?.reasoning || 0).toFixed(1)}</td>
-                            <td class="time-cell">${Number(r.category_times?.coding || 0).toFixed(1)}</td>
-                            <td class="time-cell">${Number(r.category_times?.creative || 0).toFixed(1)}</td>
-                            <td class="time-cell">${Number(r.category_times?.factual || 0).toFixed(1)}</td>
-                        </tr>
-                    `;
-                }).join('')}
+                ${results.map((result, index) => `
+                    <tr>
+                        <td class="${index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : ''}">
+                            ${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                        </td>
+                        <td>${escapeHtml(result.model_name)}</td>
+                        <td>${Number(result.avg_time_ms).toFixed(1)}</td>
+                        <td>${Number(result.total_time_ms).toFixed(1)}</td>
+                        <td>${Number(result.category_times.reasoning || 0).toFixed(1)}</td>
+                        <td>${Number(result.category_times.coding || 0).toFixed(1)}</td>
+                        <td>${Number(result.category_times.creative || 0).toFixed(1)}</td>
+                        <td>${Number(result.category_times.factual || 0).toFixed(1)}</td>
+                    </tr>
+                `).join('')}
             </tbody>
         </table>
     `;
@@ -421,8 +472,7 @@ function renderResults(results) {
 
 async function saveResults() {
     if (!currentResultsId) {
-        saveStatus.textContent = 'No benchmark results available yet.';
-        saveStatus.className = 'save-status error';
+        showToast('No benchmark results to save', 'warning');
         return;
     }
 
@@ -432,29 +482,30 @@ async function saveResults() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 results_id: currentResultsId,
-                filepath: savePathInput.value.trim() || null
+                filepath: (savePathInput.value || '').trim() || null
             })
         });
 
         const data = await response.json();
 
-        if (!response.ok || !data.success) {
+        if (!response.ok) {
             throw new Error(data.detail || 'Failed to save results');
         }
 
         saveStatus.textContent = `Saved to ${data.filepath}`;
-        saveStatus.className = 'save-status success';
-    } catch (err) {
-        saveStatus.textContent = `Save failed: ${err.message}`;
-        saveStatus.className = 'save-status error';
+        showToast('Results saved', 'success');
+    } catch (error) {
+        saveStatus.textContent = `Save failed: ${error.message}`;
+        showToast(`Save failed: ${error.message}`, 'error');
     }
 }
 
 function downloadResults() {
     if (!currentResultsId) {
-        alert('No benchmark results to download yet.');
+        showToast('No benchmark results to download', 'warning');
         return;
     }
+
     window.location.href = `/api/download/${encodeURIComponent(currentResultsId)}`;
 }
 
@@ -466,15 +517,11 @@ function log(type, message) {
     progressLog.scrollTop = progressLog.scrollHeight;
 }
 
-function escapeHtml(str) {
-    return String(str)
+function escapeHtml(value) {
+    return String(value)
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
-}
-
-function escapeJs(str) {
-    return String(str).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }

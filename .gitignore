@@ -3,3 +3,16 @@ __pycache__/
 .env
 venv/
 results.json
+
+# Benchmark run artifacts - regenerated on every run
+*.log
+results/
+output/*.json
+to_delete.txt
+
+# Live runtime state written by the dashboard and its child processes
+benchmark_state.json
+*_progress.json
+
+# Machine-specific GGUF override map (contains absolute local paths)
+hf_gguf_map.json

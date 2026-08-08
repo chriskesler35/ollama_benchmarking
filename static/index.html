@@ -3,64 +3,195 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ollama Benchmark</title>
+    <title>Benchmark Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🦙 Ollama Benchmark</h1>
-            <p class="subtitle">Benchmark your local Ollama models</p>
+        <header class="header">
+            <h1>Benchmark Dashboard</h1>
+            <p class="subtitle">Dual RTX 3060 &middot; Speed + Accuracy</p>
         </header>
 
-        <section id="model-selection" class="card">
-            <h2>📦 Available Models</h2>
-            <div id="models-list" class="models-grid">
-                <p class="loading">Loading models...</p>
-            </div>
-            <div class="actions">
-                <button id="select-all" class="btn btn-secondary">Select All</button>
-                <button id="deselect-all" class="btn btn-secondary">Deselect All</button>
-            </div>
-        </section>
+        <nav class="nav-tabs">
+            <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+            <button class="nav-btn" data-tab="phase1">Phase 1: Speed</button>
+            <button class="nav-btn" data-tab="accuracy">Accuracy</button>
+            <button class="nav-btn" data-tab="scatter">Speed vs Accuracy</button>
+            <button class="nav-btn" data-tab="phase2">Phase 2: Context</button>
+            <button class="nav-btn" data-tab="phase3">Phase 3: Optimize</button>
+            <button class="nav-btn" data-tab="report">&#9733; Report</button>
+        </nav>
 
-        <section id="prompts-info" class="card">
-            <h2>📝 Test Prompts</h2>
-            <div id="prompts-summary"></div>
-        </section>
-
-        <section id="benchmark-controls" class="card">
-            <h2>🚀 Run Benchmark</h2>
-            <div class="controls-row">
-                <button id="start-btn" class="btn btn-primary" disabled>
-                    Start Benchmark
-                </button>
-                <button id="cancel-btn" class="btn btn-danger" disabled>
-                    Cancel
-                </button>
+        <div id="dashboard" class="tab-content active">
+            <div class="card status-info">
+                <h2>Current Activity</h2>
+                <p><strong>Status:</strong> <span id="current-status">Idle</span></p>
+                <p><strong>Model:</strong> <span id="current-model">None</span></p>
+                <p><strong>Progress:</strong> <span id="current-progress">0%</span></p>
+                <button class="btn btn-secondary" id="stop-btn" onclick="stopBenchmark()" style="margin-top:12px; display:none;">Stop Current Run</button>
             </div>
-            <div id="progress-container" class="hidden">
-                <div class="progress-bar">
-                    <div id="progress-fill" class="progress-fill"></div>
+
+            <div class="dashboard-grid">
+                <div class="card phase-card">
+                    <h2>Phase 1: Speed</h2>
+                    <p class="phase-desc">Throughput &amp; latency, all models</p>
+                    <div class="progress-bar"><div class="progress-fill" id="p1-progress" style="width: 0%"></div></div>
+                    <p id="p1-status" class="progress-text">Idle</p>
+                    <button class="btn btn-primary" onclick="startPhase1()">Start</button>
+                    <button class="btn btn-secondary" onclick="showModelModal('1m','Run Speed for Specific Models')" style="margin-top:6px;">+ Specific Model(s)</button>
+                    <button class="btn btn-secondary" onclick="showCloudModal('speed')" style="margin-top:6px;">+ Cloud Models</button>
+                    <button class="btn btn-secondary" onclick="resetPhase('speed','Speed')" style="margin-top:6px;">Reset</button>
                 </div>
-                <p id="progress-text">Ready</p>
-            </div>
-        </section>
 
-        <section id="results-section" class="card hidden">
-            <h2>🏆 Results</h2>
-            <div id="results-table"></div>
-            <div class="actions">
-                <button id="export-btn" class="btn btn-secondary">Export JSON</button>
-            </div>
-        </section>
+                <div class="card phase-card">
+                    <h2>Accuracy</h2>
+                    <p class="phase-desc">Correctness: code, math, instructions</p>
+                    <div class="progress-bar"><div class="progress-fill" id="p4-progress" style="width: 0%"></div></div>
+                    <p id="p4-status" class="progress-text">Idle</p>
+                    <button class="btn btn-primary" onclick="startAccuracy()">Start</button>
+                    <button class="btn btn-secondary" onclick="showModelModal('4m','Run Accuracy for Specific Models')" style="margin-top:6px;">+ Specific Model(s)</button>
+                    <button class="btn btn-secondary" onclick="showCloudModal('accuracy')" style="margin-top:6px;">+ Cloud Models</button>
+                    <button class="btn btn-secondary" onclick="resetPhase('accuracy','Accuracy')" style="margin-top:6px;">Reset</button>
+                </div>
 
-        <section id="history-section" class="card">
-            <h2>📜 History</h2>
-            <div id="history-content">
-                <p class="loading">No previous runs</p>
+                <div class="card phase-card">
+                    <h2>Phase 2: Context</h2>
+                    <p class="phase-desc">Max safe context window per model</p>
+                    <div class="progress-bar"><div class="progress-fill" id="p2-progress" style="width: 0%"></div></div>
+                    <p id="p2-status" class="progress-text">Idle</p>
+                    <button class="btn btn-primary" id="p2-btn" onclick="startPhase2()">Start (all models)</button>
+                    <button class="btn btn-secondary" onclick="showModelModal('2','Profile Context for Specific Models')" style="margin-top:6px;">+ Specific Model(s)</button>
+                    <button class="btn btn-secondary" onclick="resetPhase('context','Context')" style="margin-top:6px;">Reset</button>
+                </div>
+
+                <div class="card phase-card">
+                    <h2>Phase 3: Optimize</h2>
+                    <p class="phase-desc">Best --parallel / --ctx-size settings</p>
+                    <div class="progress-bar"><div class="progress-fill" id="p3-progress" style="width: 0%"></div></div>
+                    <p id="p3-status" class="progress-text">Idle</p>
+                    <button class="btn btn-primary" id="p3-btn" onclick="startPhase3()">Start (all models)</button>
+                    <button class="btn btn-secondary" onclick="showModelModal('3','Optimize Specific Models')" style="margin-top:6px;">+ Specific Model(s)</button>
+                    <button class="btn btn-secondary" onclick="resetPhase('optimize','Optimize')" style="margin-top:6px;">Reset</button>
+                </div>
             </div>
-        </section>
+
+            <div class="card">
+                <button class="btn btn-secondary" onclick="exportResults()">Export All Results (JSON)</button>
+            </div>
+        </div>
+
+        <div id="phase1" class="tab-content">
+            <div class="card">
+                <h2>Phase 1: Speed Results</h2>
+                <p class="phase-desc">Updates live as each model finishes</p>
+                <table class="results-table" id="phase1-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Tokens/sec</th>
+                            <th>Avg Response (ms)</th>
+                            <th>Load Time (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="phase1-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="accuracy" class="tab-content">
+            <div class="card">
+                <h2>Accuracy Results</h2>
+                <p class="phase-desc">30 auto-scored tasks per model: 8 coding (code is executed against unit tests), 8 math, 8 multiple choice, 6 instruction following. Temperature 0. Updates live as each model finishes.</p>
+                <table class="results-table" id="accuracy-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Overall</th>
+                            <th>Coding</th>
+                            <th>Math</th>
+                            <th>Multi-Choice</th>
+                            <th>Instructions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accuracy-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="scatter" class="tab-content">
+            <div class="card">
+                <h2>Speed vs Accuracy</h2>
+                <p class="phase-desc">Each dot is a model. <strong>Up</strong> = more accurate, <strong>right</strong> = faster. The sweet spot is the <strong>top-right</strong>: fast AND correct. Needs both a Phase 1 speed score and an accuracy score to appear. <strong>&#9632; squares are cloud models</strong> &mdash; their speed reflects network + Ollama's hosted throughput, not this rig's hardware, so don't compare them directly to local tok/s.</p>
+                <div id="scatter-plot" style="width:100%; overflow-x:auto;"></div>
+                <div id="scatter-empty" class="phase-desc"></div>
+            </div>
+        </div>
+
+        <div id="phase2" class="tab-content">
+            <div class="card">
+                <h2>Phase 2: Context Profiling Results</h2>
+                <div id="phase2-body"><p class="phase-desc">No results yet. Run Phase 2 from the Dashboard tab after Phase 1 completes.</p></div>
+            </div>
+        </div>
+
+        <div id="phase3" class="tab-content">
+            <div class="card">
+                <h2>Phase 3: Server Optimization Results</h2>
+                <div id="phase3-body"><p class="phase-desc">No results yet. Run Phase 3 from the Dashboard tab after Phase 2 completes.</p></div>
+            </div>
+        </div>
+
+        <div id="report" class="tab-content">
+            <div class="report-stats" id="report-summary">
+                <div class="report-stat"><div class="report-stat-val">—</div><div class="report-stat-label">Models Benchmarked</div></div>
+                <div class="report-stat"><div class="report-stat-val">—</div><div class="report-stat-label">Full Score Available</div></div>
+                <div class="report-stat"><div class="report-stat-val">—</div><div class="report-stat-label">Perfect Accuracy</div></div>
+                <div class="report-stat"><div class="report-stat-val">—</div><div class="report-stat-label">Fastest ≥90% Accurate</div></div>
+            </div>
+
+            <div class="card">
+                <h2>Overall Rankings</h2>
+                <p class="phase-desc">Composite score = 65% accuracy + 35% speed (capped at 80 tok/s). Solid bar = accuracy contribution &middot; faded bar = speed contribution. Hover a bar for details.</p>
+                <div id="report-score-chart"></div>
+            </div>
+
+            <div class="card">
+                <h2>Accuracy by Category</h2>
+                <p class="phase-desc">Each cell shows the score for that model + category. Color intensity reflects the percentage — green is better.</p>
+                <div id="report-heatmap" style="overflow-x:auto;"></div>
+            </div>
+
+            <div class="card">
+                <h2>Use-Case Decision Guide</h2>
+                <p class="phase-desc">Best model for each task type, computed live from current benchmark data.</p>
+                <div id="report-usecases" class="usecase-grid"></div>
+            </div>
+
+            <div id="report-tiers"></div>
+
+            <div class="card" style="margin-top:20px;">
+                <p class="phase-desc" style="font-size:12px;" id="report-footer">Score formula: composite = (accuracy% × 0.65) + (min(tok/s ÷ 80, 1.0) × 100 × 0.35) &middot; Phase 2 context profiling and Phase 3 optimization data will enrich this report once those phases are run.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modal-title">Select Models</h2>
+            <div id="modal-models" style="margin: 20px 0; max-height: 300px; overflow-y: auto;"></div>
+            <button class="btn btn-primary" onclick="submitModels()">Start</button>
+        </div>
+    </div>
+
+    <div id="hf-modal" class="modal">
+        <div class="modal-content" style="max-width: 640px;">
+            <span class="close" onclick="closeHfModal()">&times;</span>
+            <h2 id="hf-modal-title">Find a llama.cpp-compatible GGUF</h2>
+            <p class="phase-desc" id="hf-modal-desc"></p>
+            <div id="hf-modal-body" style="margin: 16px 0; max-height: 400px; overflow-y: auto;"></div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>

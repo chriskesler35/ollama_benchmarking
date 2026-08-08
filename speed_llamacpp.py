@@ -161,12 +161,18 @@ def measure_speed_cloud(model: str, verbose: bool) -> dict:
     print(f"    (cloud) measuring via Ollama proxy")
     try:
         s = ollama_speed(model)
-        print(f"    {s['tps']} tok/s (cloud)")
+        print(f"    {s['tps']} tok/s (cloud, from {s.get('timing_basis')})")
+        # Cloud responses omit eval_duration, so tok/s is derived from
+        # total_duration - i.e. end-to-end wall clock, not pure generation rate.
+        basis_note = (" Derived from total request time (cloud responses omit "
+                      "per-stage timings), so it includes network and queueing."
+                      if s.get("timing_basis") == "total_duration" else "")
         return {"model_name": model, "engine": "ollama-cloud", "status": "ok",
                 "avg_tokens_per_sec": s["tps"], "avg_time_ms": s["avg_time_ms"],
                 "load_time_ms": s["load_time_ms"],
+                "timing_basis": s.get("timing_basis"),
                 "note": "Cloud model - speed reflects network + hosted throughput, "
-                        "not local hardware."}
+                        "not local hardware." + basis_note}
     except Exception as e:
         return {"model_name": model, "engine": "ollama-cloud", "status": "error",
                 "avg_tokens_per_sec": None, "note": f"Cloud request failed: {e}"}

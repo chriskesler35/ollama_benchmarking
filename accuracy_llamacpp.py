@@ -192,6 +192,20 @@ def benchmark_model_accuracy_cloud(model: str, verbose: bool, progress_cb=None) 
     ask = lambda prompt: ollama_generate_text(model, prompt, CLOUD_MAX_TOKENS)
     task_results = run_tasks(ask, verbose, progress_cb)
 
+    # Every task erroring means the model never actually answered - a billing
+    # rejection (HTTP 402), an auth failure, or an outage. Scoring that as 0%
+    # would rank a possibly-excellent model as the worst in the table, so report
+    # it as unmeasured instead.
+    errs = [t for t in task_results if t.get("errored")]
+    if len(errs) == len(task_results) and task_results:
+        reason = errs[0]["detail"]
+        print(f"    all {len(errs)} tasks errored - reporting as unmeasured")
+        return {"model_name": model, "engine": "ollama-cloud",
+                "accuracy": None, "passed": 0, "total": len(task_results),
+                "by_category": {}, "task_results": task_results,
+                "status": "error",
+                "note": f"Not scored - every request failed: {reason}"}
+
     by_category = {}
     for cat in CATEGORIES:
         cr = [r for r in task_results if r["category"] == cat]
@@ -212,13 +226,15 @@ def run_tasks(ask, verbose: bool, progress_cb=None) -> list:
     """Run all accuracy tasks using the given ask(prompt)->text function."""
     task_results = []
     for i, task in enumerate(ACCURACY_TASKS, 1):
+        errored = False
         try:
             raw = ask(task.prompt)
             passed, detail = score_task(task, raw)
         except Exception as e:
             raw, passed, detail = f"[ERROR: {e}]", False, str(e)[:160]
+            errored = True
         task_results.append({"task_id": task.id, "category": task.category,
-                             "passed": passed, "detail": detail,
+                             "passed": passed, "detail": detail, "errored": errored,
                              "response": clean_response(raw)[:4000]})
         if progress_cb:
             progress_cb(i)

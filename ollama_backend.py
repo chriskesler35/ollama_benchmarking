@@ -31,15 +31,33 @@ def ollama_generate_text(model: str, prompt: str, num_predict: int = 1024) -> st
 
 
 def ollama_speed(model: str, num_predict: int = 128) -> dict:
-    """Single-stream speed via Ollama. Returns {tps, avg_time_ms, load_time_ms}."""
+    """Single-stream speed via Ollama. Returns {tps, avg_time_ms, load_time_ms}.
+
+    Cloud-proxied models return only `total_duration` - the granular
+    `eval_duration` / `load_duration` / `prompt_eval_duration` fields are
+    absent entirely. Reading eval_duration alone made every cloud model
+    report 0.0 tok/s, which looks like a failed measurement rather than a
+    successful one, so fall back to total_duration.
+
+    That fallback is wall-clock (network + queueing + prompt processing +
+    generation), so it slightly understates pure generation rate. For a cloud
+    model that is arguably the more honest number anyway - you cannot get its
+    raw generation speed from here, and end-to-end latency is what you would
+    actually experience. `timing_basis` records which was used.
+    """
     d = ollama_generate(model, "Write a short paragraph about the ocean.", num_predict)
     eval_count = d.get("eval_count", 0)
-    eval_ns = d.get("eval_duration", 0)
-    tps = round(eval_count / (eval_ns / 1e9), 1) if eval_ns > 0 else 0.0
+    eval_ns = d.get("eval_duration") or 0
+    if eval_ns:
+        basis_ns, basis = eval_ns, "eval_duration"
+    else:
+        basis_ns, basis = (d.get("total_duration") or 0), "total_duration"
+    tps = round(eval_count / (basis_ns / 1e9), 1) if basis_ns > 0 else 0.0
     return {
         "tps": tps,
-        "avg_time_ms": round(eval_ns / 1e6) if eval_ns else None,  # generation time
-        "load_time_ms": round(d.get("load_duration", 0) / 1e6) or None,
+        "avg_time_ms": round(basis_ns / 1e6) if basis_ns else None,
+        "load_time_ms": round((d.get("load_duration") or 0) / 1e6) or None,
+        "timing_basis": basis,
     }
 
 

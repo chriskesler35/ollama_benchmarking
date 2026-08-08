@@ -31,6 +31,13 @@ VERSION = "1.0.0"
 
 SERVER_CTX = 4096
 MAX_TOKENS = 1024  # caps runaway reasoning models
+# Cloud reasoning models spend this budget on `thinking` BEFORE emitting
+# `response`, and only `response` is scored - so a budget that runs out
+# mid-thought returns an empty string and scores 0, indistinguishable from a
+# wrong answer. Local models are capped lower because their cost is wall-clock
+# across ~29 models; cloud cost is per-token and a higher ceiling is only
+# charged if actually used (well-behaved models stop at done_reason=stop).
+CLOUD_MAX_TOKENS = 4096
 HEALTH_TIMEOUT = 240
 REQUEST_TIMEOUT = 180
 
@@ -182,7 +189,7 @@ def benchmark_model_accuracy_cloud(model: str, verbose: bool, progress_cb=None) 
     """Cloud model: no GGUF, no VRAM, scored straight through Ollama's cloud proxy.
     Every task here spends subscription credits, not local compute."""
     print(f"\n[*] Accuracy (cloud) for: {model}")
-    ask = lambda prompt: ollama_generate_text(model, prompt, MAX_TOKENS)
+    ask = lambda prompt: ollama_generate_text(model, prompt, CLOUD_MAX_TOKENS)
     task_results = run_tasks(ask, verbose, progress_cb)
 
     by_category = {}

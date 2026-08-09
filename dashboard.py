@@ -691,7 +691,12 @@ async def get_accuracy_results():
     results = [r for m, r in merged.items() if not _is_vision(m)]
     if not results:
         return None
-    results.sort(key=lambda r: r.get("accuracy", 0), reverse=True)
+    # accuracy is None for models that never actually answered (billing
+    # rejection, auth failure, outage) - those are unmeasured, not zero, so
+    # sort them below every real score rather than letting None hit the
+    # comparison and raise TypeError.
+    results.sort(key=lambda r: (r.get("accuracy") is not None, r.get("accuracy") or 0),
+                 reverse=True)
     return {"total_models": len(results), "results": results}
 
 
@@ -754,7 +759,9 @@ async def get_combined_results():
     accuracy = {}
     categories = {}
     for m, r in acc.items():
-        accuracy[m] = r["accuracy"]
+        # .get, not [] - an errored record may omit the key entirely, and a
+        # KeyError here takes down the whole scatter plot for one bad row.
+        accuracy[m] = r.get("accuracy")
         categories[m] = r.get("by_category", {})
 
     points = []

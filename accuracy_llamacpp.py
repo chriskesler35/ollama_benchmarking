@@ -25,7 +25,7 @@ from accuracy_prompts import ACCURACY_TASKS, CATEGORIES, score_task, clean_respo
 from gguf_resolver import resolve_gguf
 from gpu_split import optimal_tensor_split, check_fit
 from llama_server import start_server, stop_server, SERVER_HOST, SERVER_PORT
-from ollama_backend import ollama_generate_text, ollama_unload
+from ollama_backend import ollama_generate_text, ollama_unload, supports_generate
 
 VERSION = "1.0.0"
 
@@ -117,7 +117,9 @@ def discover_models(host: str, port: int) -> List[str]:
             return False
         return True
 
-    return [n for n in names if keep(n)]
+    # Also drop models Ollama reports as non-generative (e.g. 'decision'- or
+    # 'embedding'-only), which 400 on /api/generate and can't be benchmarked.
+    return [n for n in names if keep(n) and supports_generate(n, host, port)]
 
 
 def ask_model(prompt: str) -> str:

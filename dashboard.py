@@ -134,7 +134,10 @@ def discover_local_models() -> list:
             return False
         return True
 
-    return [m for m in models if keep(m)]
+    # Also drop models Ollama reports as non-generative (e.g. 'decision'- or
+    # 'embedding'-only), which 400 on /api/generate and can't be benchmarked.
+    from ollama_backend import supports_generate
+    return [m for m in models if keep(m) and supports_generate(m)]
 
 
 def is_pid_alive(pid) -> bool:

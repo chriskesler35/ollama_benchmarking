@@ -255,7 +255,10 @@ function showCloudModal(kind) {
 function submitModels() {
     const modal = document.getElementById('modal');
     const phase = modal.dataset.phase;
-    const selected = Array.from(document.querySelectorAll('#modal-models input[type="checkbox"]:checked'))
+    // Exclude the "Run ONLY these" toggle: it has no value attribute, so it
+    // defaults to "on" and would otherwise be sent as a bogus cloud model
+    // (-> Ollama "model 'on' not found").
+    const selected = Array.from(document.querySelectorAll('#modal-models input[type="checkbox"]:checked:not(#cloud-only-toggle)'))
         .map(cb => cb.value);
 
     if (phase === '1c' || phase === '4c') {
@@ -324,6 +327,19 @@ function engineBadge(engine) {
         return ' <span style="color:var(--color-text-secondary);font-size:12px;">(Ollama)</span>';
     }
     return '';
+}
+
+function engineCell(engine) {
+    // Standalone 'Engine' column on the Accuracy table: name the engine that
+    // actually ran the test for every row - including the common llama.cpp
+    // case, which the inline badge above left blank.
+    if (engine === 'ollama-cloud')
+        return '<span style="color:#d6a000;font-weight:600;">&#9729; Cloud</span>';
+    if (engine === 'ollama')
+        return '<span style="color:#4a90d9;font-weight:600;">Ollama</span>';
+    if (engine === 'llama.cpp')
+        return '<span style="color:#2e9e5b;font-weight:600;">llama.cpp</span>';
+    return '<span style="color:var(--color-text-secondary,#888);">&mdash;</span>';
 }
 
 function hfFixButton(modelName, engine) {
@@ -466,14 +482,15 @@ function loadAccuracyResults() {
                     const note = result.note || result.status || 'not run';
                     row.innerHTML = `
                         <td>${result.model_name}</td>
+                        <td>${engineCell(result.engine)}</td>
                         <td colspan="5" style="color: var(--color-text-danger, #c0392b);">⚠ ${note}</td>`;
                 } else {
                     const cats = result.by_category || {};
                     const pct = (cat) => cats[cat] ? cats[cat].accuracy.toFixed(0) + '%' : '-';
-                    const eng = engineBadge(result.engine);
                     const fix = hfFixButton(result.model_name, result.engine);
                     row.innerHTML = `
-                        <td>${result.model_name}${eng}${fix}</td>
+                        <td>${result.model_name}${fix}</td>
+                        <td>${engineCell(result.engine)}</td>
                         <td><strong>${result.accuracy.toFixed(1)}%</strong> (${result.passed}/${result.total})</td>
                         <td>${pct('coding')}</td>
                         <td>${pct('math')}</td>
